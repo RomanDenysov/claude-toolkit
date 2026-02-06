@@ -2,6 +2,8 @@
 
 A rich status line for Claude Code with Tokyo Night Storm colors.
 
+![statusline screenshot](screenshot.png)
+
 ## What It Shows
 
 ```
