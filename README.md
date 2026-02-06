@@ -6,7 +6,7 @@ A collection of tools, hooks, and utilities for getting the most out of [Claude 
 
 | Tool | Description |
 |------|-------------|
-| [auto-skills](./auto-skills/) | Context-aware skill & plugin loader — only enables relevant skills per project based on tech stack detection |
+| [auto-skills](./auto-skills/) | Context-aware skill & plugin loader — reduces skill index noise and false triggers by enabling only relevant skills per project |
 | [statusline](./statusline/) | Rich status line with Tokyo Night colors — git, model, context usage, tasks, cost |
 
 ## Install

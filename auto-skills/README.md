@@ -2,26 +2,33 @@
 
 Context-aware skill and plugin loader for Claude Code.
 
-## Problem
+## What It Does
 
-Claude Code loads **all** installed skills into the agent's context on every session. If you have skills for Expo, Turborepo, Next.js, Playwright, and Swift — they all get injected even when you're working on a plain Node.js API. This wastes context and adds noise.
+Claude Code loads a **skill index** (name + description + trigger patterns) into every session's system prompt. The full skill content is lazy — it only loads when a skill is actually invoked. But the index itself means the model sees every installed skill's description on every message, even irrelevant ones.
 
-## Solution
-
-A `SessionStart` hook that scans your project for signals (config files, `package.json` deps) and symlinks **only matching skills** into each project's `.claude/skills/` directory. Configure detection rules once globally — no per-project setup needed.
+This hook reduces that noise. It scans your project for tech stack signals (config files, `package.json` deps) and symlinks **only matching skills** into each project's `.claude/skills/` directory. Configure detection rules once globally — no per-project setup needed.
 
 ### Before
 
 ```
-Every session loads: turborepo, building-native-ui, update-docs,
+Skill index contains: turborepo, building-native-ui, update-docs,
 vercel-react-best-practices, agent-browser, find-skills
 ```
 
 ### After (Next.js project)
 
 ```
-Only loads: update-docs, vercel-react-best-practices, find-skills
+Skill index contains: update-docs, vercel-react-best-practices, find-skills
 ```
+
+## When Is This Useful?
+
+- **You have 20+ skills installed** — the skill index grows with each one, and irrelevant descriptions add noise the model has to parse on every turn
+- **You're getting false skill triggers** — the model invokes Expo skills in a Django project because it sees the trigger patterns in the index
+- **You want a clean `/skills` list** — only see what's relevant to the current project
+- **You work across different tech stacks** — monorepo with Next.js + Expo, or switching between Swift and TypeScript projects
+
+If you have 5-10 skills and no false triggers, this probably isn't worth the setup.
 
 ## How It Works
 
