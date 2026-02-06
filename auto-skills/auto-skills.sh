@@ -42,7 +42,22 @@ PKG_JSON="$PROJECT_ROOT/package.json"
 # Use temp files for collecting results (bash 3 compat)
 SKILLS_FILE=$(mktemp)
 PLUGINS_FILE=$(mktemp)
-trap 'rm -f "$SKILLS_FILE" "$PLUGINS_FILE"' EXIT
+PKG_LIST=$(mktemp)
+trap 'rm -f "$SKILLS_FILE" "$PLUGINS_FILE" "$PKG_LIST"' EXIT
+
+# Collect all package.json files to check deps against.
+# Root package.json first, then workspace packages (monorepo support).
+[ -f "$PKG_JSON" ] && echo "$PKG_JSON" >> "$PKG_LIST"
+
+# Detect monorepo and add workspace package.json files
+for marker in turbo.json pnpm-workspace.yaml lerna.json; do
+  if [ -e "$PROJECT_ROOT/$marker" ]; then
+    for dir in "$PROJECT_ROOT"/apps/*/package.json "$PROJECT_ROOT"/packages/*/package.json; do
+      [ -f "$dir" ] && echo "$dir" >> "$PKG_LIST"
+    done
+    break
+  fi
+done
 
 # Seed with always-enabled
 $JQ -r '.always_enabled.skills[]' "$CONFIG" >> "$SKILLS_FILE" 2>/dev/null || true
@@ -55,28 +70,32 @@ i=0
 while [ "$i" -lt "$RULES_COUNT" ]; do
   MATCHED=false
 
-  # Check file signals
+  # Check file signals in project root and workspace dirs (monorepo aware)
   for f in $($JQ -r ".rules[$i].detect.files // [] | .[]" "$CONFIG"); do
-    case "$f" in
-      *\**)
-        # glob pattern
-        ls "$PROJECT_ROOT"/$f >/dev/null 2>&1 && MATCHED=true && break
-        ;;
-      *)
-        [ -e "$PROJECT_ROOT/$f" ] && MATCHED=true && break
-        ;;
-    esac
+    for search_dir in "$PROJECT_ROOT" "$PROJECT_ROOT"/apps/* "$PROJECT_ROOT"/packages/*; do
+      [ -d "$search_dir" ] || continue
+      case "$f" in
+        *\**)
+          ls "$search_dir"/$f >/dev/null 2>&1 && MATCHED=true && break 2
+          ;;
+        *)
+          [ -e "$search_dir/$f" ] && MATCHED=true && break 2
+          ;;
+      esac
+    done
   done
 
-  # Check dependency signals (only if not already matched)
-  if [ "$MATCHED" = "false" ] && [ -f "$PKG_JSON" ]; then
+  # Check dependency signals across all package.json files (monorepo aware)
+  if [ "$MATCHED" = "false" ] && [ -s "$PKG_LIST" ]; then
     for dep in $($JQ -r ".rules[$i].detect.deps // [] | .[]" "$CONFIG"); do
-      if $JQ -e --arg d "$dep" \
-        '(.dependencies // {} | has($d)) or (.devDependencies // {} | has($d)) or (.peerDependencies // {} | has($d))' \
-        "$PKG_JSON" >/dev/null 2>&1; then
-        MATCHED=true
-        break
-      fi
+      while IFS= read -r pkg; do
+        if $JQ -e --arg d "$dep" \
+          '(.dependencies // {} | has($d)) or (.devDependencies // {} | has($d)) or (.peerDependencies // {} | has($d))' \
+          "$pkg" >/dev/null 2>&1; then
+          MATCHED=true
+          break 2
+        fi
+      done < "$PKG_LIST"
     done
   fi
 
