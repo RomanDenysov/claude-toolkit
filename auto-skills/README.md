@@ -8,7 +8,7 @@ Claude Code loads **all** installed skills into the agent's context on every ses
 
 ## Solution
 
-A `SessionStart` hook that scans your project for signals (config files, `package.json` deps) and symlinks **only matching skills** into each project's `.claude/skills/` directory. Zero noise, zero manual config per project.
+A `SessionStart` hook that scans your project for signals (config files, `package.json` deps) and symlinks **only matching skills** into each project's `.claude/skills/` directory. Configure detection rules once globally — no per-project setup needed.
 
 ### Before
 
@@ -41,6 +41,7 @@ Only loads: update-docs, vercel-react-best-practices, find-skills
 
 ```bash
 cd claude-toolkit
+chmod +x auto-skills/install.sh
 ./auto-skills/install.sh
 ```
 

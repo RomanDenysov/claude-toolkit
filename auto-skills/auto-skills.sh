@@ -60,7 +60,7 @@ while [ "$i" -lt "$RULES_COUNT" ]; do
     case "$f" in
       *\**)
         # glob pattern
-        ls $PROJECT_ROOT/$f >/dev/null 2>&1 && MATCHED=true && break
+        ls "$PROJECT_ROOT"/$f >/dev/null 2>&1 && MATCHED=true && break
         ;;
       *)
         [ -e "$PROJECT_ROOT/$f" ] && MATCHED=true && break

@@ -8,6 +8,25 @@ HOOKS_DIR="$CLAUDE_DIR/hooks"
 SETTINGS="$CLAUDE_DIR/settings.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# --help
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  echo "Usage: ./auto-skills/install.sh"
+  echo ""
+  echo "Installs the auto-skills SessionStart hook for Claude Code."
+  echo "Copies the hook script and config to ~/.claude/ and registers"
+  echo "the hook in ~/.claude/settings.json."
+  echo ""
+  echo "Requirements: jq (brew install jq)"
+  exit 0
+fi
+
+# Validate we're in the right directory
+if [ ! -f "$SCRIPT_DIR/auto-skills.sh" ] || [ ! -f "$SCRIPT_DIR/auto-skills.example.json" ]; then
+  echo "Error: Cannot find auto-skills.sh or auto-skills.example.json in $SCRIPT_DIR"
+  echo "Make sure you're running this from the claude-toolkit repo."
+  exit 1
+fi
+
 # Check jq
 if ! command -v jq &>/dev/null; then
   echo "Error: jq is required. Install with: brew install jq"

@@ -13,10 +13,11 @@ A collection of tools, hooks, and utilities for getting the most out of [Claude 
 Each tool has its own `install.sh`. Clone the repo and run the one you need:
 
 ```bash
-git clone git@github.com:RomanDenysov/claude-toolkit.git
+git clone https://github.com/RomanDenysov/claude-toolkit.git
 cd claude-toolkit
 
 # Install a specific tool
+chmod +x auto-skills/install.sh
 ./auto-skills/install.sh
 ```
 
