@@ -45,13 +45,21 @@ chmod +x auto-skills/install.sh
 ./auto-skills/install.sh
 ```
 
-Then edit `~/.claude/auto-skills.json`:
-- Set `skills_library` to your skills directory (e.g., `~/.agents/skills` or wherever your skills live)
-- Add/modify detection rules
+The installer will:
+1. Auto-detect your skills library (`~/.agents/skills`, `~/.claude/skills-library`, etc.)
+2. Scan installed skills and generate detection rules automatically
+3. Flag any unrecognized skills so you can add custom rules if needed
+4. Register the SessionStart hook in `~/.claude/settings.json`
+
+To regenerate the config (e.g., after installing new skills):
+```bash
+rm ~/.claude/auto-skills.json
+./auto-skills/install.sh
+```
 
 ## Configuration
 
-Edit `~/.claude/auto-skills.json`:
+The config is auto-generated, but you can edit `~/.claude/auto-skills.json` to add custom rules:
 
 ```json
 {
@@ -84,16 +92,35 @@ Edit `~/.claude/auto-skills.json`:
 | `skills` | Skill names to symlink when matched |
 | `plugins` | Plugin overrides for project `.claude/settings.json` |
 
-### Built-in rules (example config)
+### Supported auto-detection
 
-| Signal | Enables |
-|--------|---------|
-| `turbo.json` | turborepo |
-| `expo` in deps / `app.json` | building-native-ui |
-| `next` in deps / `next.config.*` | update-docs, vercel-react-best-practices |
-| `react` in deps | vercel-react-best-practices |
-| `playwright`/`cypress` in deps | agent-browser |
-| `Package.swift` / `*.xcodeproj` | swift-lsp plugin |
+The installer recognizes these skills and generates rules automatically:
+
+| Skill pattern | Detection signals |
+|---------------|-------------------|
+| `turborepo` | `turbo.json` |
+| `building-native-ui` | `app.json`, `expo` dep |
+| `update-docs` | `next.config.*`, `next` dep |
+| `vercel-react-best-practices` | `react` dep |
+| `agent-browser` | `playwright.config.*`, `cypress.config.*`, related deps |
+| `swift-*`, `ios-*` | `Package.swift`, `*.xcodeproj` |
+| `django-*` | `manage.py`, `django` dep |
+| `go-*` | `go.mod` |
+| `rust-*` | `Cargo.toml` |
+| `vue-*` | `vue.config.js`, `vue` dep |
+| `angular-*` | `angular.json`, `@angular/core` dep |
+| `svelte-*` | `svelte.config.*`, `svelte` dep |
+| `tailwind-*` | `tailwind.config.*`, `tailwindcss` dep |
+| `prisma-*` | `prisma/schema.prisma`, `@prisma/client` dep |
+| `drizzle-*` | `drizzle.config.*`, `drizzle-orm` dep |
+| `docker-*` | `Dockerfile`, `docker-compose.yml` |
+| `terraform-*` | `main.tf` |
+
+Skills not matching any pattern are flagged during install so you can add custom rules.
+
+### Monorepo support
+
+When a monorepo marker is detected (`turbo.json`, `pnpm-workspace.yaml`, `lerna.json`), the hook also scans `apps/*/` and `packages/*/` for signals — so a Next.js app inside `apps/web/` will still trigger the right skills.
 
 ## How It Stays Clean
 
