@@ -1,0 +1,65 @@
+{
+  "skills_library": "/Users/YOU/.agents/skills",
+  "rules": [
+    {
+      "name": "turborepo",
+      "detect": {
+        "files": ["turbo.json"],
+        "deps": []
+      },
+      "skills": ["turborepo"],
+      "plugins": {}
+    },
+    {
+      "name": "expo",
+      "detect": {
+        "files": ["app.json", "expo.json"],
+        "deps": ["expo"]
+      },
+      "skills": ["building-native-ui"],
+      "plugins": {}
+    },
+    {
+      "name": "nextjs",
+      "detect": {
+        "files": ["next.config.js", "next.config.mjs", "next.config.ts"],
+        "deps": ["next"]
+      },
+      "skills": ["update-docs", "vercel-react-best-practices"],
+      "plugins": {}
+    },
+    {
+      "name": "react",
+      "detect": {
+        "files": [],
+        "deps": ["react"]
+      },
+      "skills": ["vercel-react-best-practices"],
+      "plugins": {}
+    },
+    {
+      "name": "browser-testing",
+      "detect": {
+        "files": ["playwright.config.ts", "playwright.config.js", "cypress.config.ts", "cypress.config.js"],
+        "deps": ["playwright", "puppeteer", "cypress"]
+      },
+      "skills": ["agent-browser"],
+      "plugins": {}
+    },
+    {
+      "name": "swift",
+      "detect": {
+        "files": ["Package.swift", "*.xcodeproj", "*.xcworkspace"],
+        "deps": []
+      },
+      "skills": [],
+      "plugins": {
+        "swift-lsp@claude-plugins-official": true
+      }
+    }
+  ],
+  "always_enabled": {
+    "skills": ["find-skills"],
+    "plugins": {}
+  }
+}
