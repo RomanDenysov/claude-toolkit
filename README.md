@@ -7,6 +7,7 @@ A collection of tools, hooks, and utilities for getting the most out of [Claude 
 | Tool | Description |
 |------|-------------|
 | [auto-skills](./auto-skills/) | Context-aware skill & plugin loader — reduces skill index noise and false triggers by enabling only relevant skills per project |
+| [ghostty-notify](./ghostty-notify/) | macOS notification + terminal bell when Claude Code needs your input |
 | [statusline](./statusline/) | Rich status line with Tokyo Night colors — git, model, context usage, tasks, cost |
 
 ## Install
@@ -18,8 +19,9 @@ git clone https://github.com/RomanDenysov/claude-toolkit.git
 cd claude-toolkit
 
 # Install tools
-chmod +x auto-skills/install.sh statusline/install.sh
+chmod +x auto-skills/install.sh ghostty-notify/install.sh statusline/install.sh
 ./auto-skills/install.sh
+./ghostty-notify/install.sh
 ./statusline/install.sh
 ```
 
