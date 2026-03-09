@@ -1,0 +1,111 @@
+#!/bin/bash
+# claude-keychain — Read Claude Code OAuth credentials from macOS Keychain
+#
+# macOS Keychain may return credentials as hex-encoded data blobs.
+# This tool transparently handles both hex and plain JSON formats.
+
+set -euo pipefail
+
+KEYCHAIN_ENTRY="Claude Code-credentials"
+
+read_keychain() {
+  local raw
+  raw=$(security find-generic-password -s "$KEYCHAIN_ENTRY" -w 2>/dev/null) || return 1
+  [[ -z "$raw" ]] && return 1
+
+  if [[ "$raw" =~ ^[0-9a-fA-F]+$ ]] && ! echo "$raw" | jq -e '.' >/dev/null 2>&1; then
+    echo "$raw" | xxd -r -p
+  else
+    echo "$raw"
+  fi
+}
+
+cmd_read() {
+  read_keychain
+}
+
+cmd_token() {
+  local data
+  data=$(read_keychain) || { echo "No credentials found" >&2; return 1; }
+  echo "$data" | jq -r '.claudeAiOauth.accessToken // empty'
+}
+
+cmd_refresh_token() {
+  local data
+  data=$(read_keychain) || { echo "No credentials found" >&2; return 1; }
+  echo "$data" | jq -r '.claudeAiOauth.refreshToken // empty'
+}
+
+cmd_expires() {
+  local data expires_at now_ms
+  data=$(read_keychain) || { echo "No credentials found" >&2; return 1; }
+  expires_at=$(echo "$data" | jq -r '.claudeAiOauth.expiresAt // empty')
+  [[ -z "$expires_at" ]] && { echo "No expiry found" >&2; return 1; }
+
+  now_ms=$(( $(date +%s) * 1000 ))
+  local remaining_s=$(( (expires_at - now_ms) / 1000 ))
+
+  if [[ $remaining_s -le 0 ]]; then
+    echo "expired"
+    return 1
+  fi
+
+  local h=$((remaining_s / 3600)) m=$(((remaining_s % 3600) / 60))
+  echo "${h}h${m}m"
+}
+
+cmd_expired() {
+  local data expires_at now_ms
+  data=$(read_keychain) || return 0
+  expires_at=$(echo "$data" | jq -r '.claudeAiOauth.expiresAt // empty')
+  [[ -z "$expires_at" ]] && return 0
+  now_ms=$(( $(date +%s) * 1000 ))
+  [[ $now_ms -gt $((expires_at - 300000)) ]]
+}
+
+cmd_subscription() {
+  local data
+  data=$(read_keychain) || { echo "No credentials found" >&2; return 1; }
+  echo "$data" | jq -r '.claudeAiOauth.subscriptionType // empty'
+}
+
+cmd_field() {
+  local field="$1" data
+  data=$(read_keychain) || { echo "No credentials found" >&2; return 1; }
+  echo "$data" | jq -r ".claudeAiOauth.${field} // empty"
+}
+
+usage() {
+  cat <<'EOF'
+claude-keychain — Read Claude Code credentials from macOS Keychain
+
+Usage: claude-keychain <command>
+
+Commands:
+  read            Print full credentials JSON
+  token           Print access token
+  refresh-token   Print refresh token
+  expires         Print time until token expires (or "expired")
+  expired         Exit 0 if expired, 1 if valid (for scripting)
+  subscription    Print subscription type (pro, max, etc.)
+  field <name>    Print any field from claudeAiOauth object
+
+Examples:
+  claude-keychain token
+  claude-keychain expired && echo "need refresh"
+  curl -H "Authorization: Bearer $(claude-keychain token)" ...
+  claude-keychain field rateLimitTier
+EOF
+}
+
+case "${1:-}" in
+  read)           cmd_read ;;
+  token)          cmd_token ;;
+  refresh-token)  cmd_refresh_token ;;
+  expires)        cmd_expires ;;
+  expired)        cmd_expired ;;
+  subscription)   cmd_subscription ;;
+  field)          cmd_field "${2:?Usage: claude-keychain field <name>}" ;;
+  -h|--help|help) usage ;;
+  *)              usage >&2; exit 1 ;;
+esac

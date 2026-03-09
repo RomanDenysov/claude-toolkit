@@ -8,7 +8,9 @@ A collection of tools, hooks, and utilities for getting the most out of [Claude 
 |------|-------------|
 | [auto-skills](./auto-skills/) | Context-aware skill & plugin loader — reduces skill index noise and false triggers by enabling only relevant skills per project |
 | [ghostty-notify](./ghostty-notify/) | macOS notification + terminal bell when Claude Code needs your input |
+| [claude-keychain](./claude-keychain/) | CLI to read Claude Code OAuth credentials from macOS Keychain |
 | [statusline](./statusline/) | Rich status line with Tokyo Night colors — git, model, context usage, tasks, cost |
+| [tmux-usage](./tmux-usage/) | tmux status bar showing Claude API rate limit usage with auto-refreshing auth |
 
 ## Install
 
@@ -19,10 +21,12 @@ git clone https://github.com/RomanDenysov/claude-toolkit.git
 cd claude-toolkit
 
 # Install tools
-chmod +x auto-skills/install.sh ghostty-notify/install.sh statusline/install.sh
+chmod +x auto-skills/install.sh ghostty-notify/install.sh statusline/install.sh claude-keychain/install.sh tmux-usage/install.sh
 ./auto-skills/install.sh
 ./ghostty-notify/install.sh
 ./statusline/install.sh
+./claude-keychain/install.sh
+./tmux-usage/install.sh
 ```
 
 ## Requirements
