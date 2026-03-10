@@ -29,8 +29,8 @@ Progress bars change color dynamically: green → yellow (>60%) → red (>80%).
 1. Reads OAuth credentials from macOS Keychain
 2. Calls `api.anthropic.com/api/oauth/usage` to fetch utilization
 3. Caches responses for 60s to avoid API spam
-4. Auto-refreshes expired tokens using the OAuth refresh flow
-5. Falls back to cached data when the API is unreachable
+4. Falls back to cached data when token expires or API is unreachable
+5. Token refresh is handled by Claude Code itself - run `/login` if needed
 
 ### Keychain Hex Decoding
 

@@ -1,19 +1,20 @@
 #!/bin/bash
-# tmux-usage.sh — Claude API usage bar for tmux status line
+# tmux-usage.sh - Claude API usage bar for tmux status line
 #
 # Shows 5-hour and 7-day rate limit utilization with countdown timers.
-# Reads OAuth credentials from macOS Keychain, auto-refreshes expired tokens.
+# Read-only - reads OAuth credentials from macOS Keychain, never modifies them.
+# Token refresh is handled by Claude Code itself.
 #
 # Usage: tmux-usage.sh [5h|7d|all]
-#   5h  — show only 5-hour limit
-#   7d  — show only weekly limit
-#   all — show both (default)
+#   5h  - show only 5-hour limit
+#   7d  - show only weekly limit
+#   all - show both (default)
 
 MODE="${1:-all}"
 
 CACHE_DIR="$HOME/.cache/claude-tmux-usage"
 API_CACHE="$CACHE_DIR/api-response.json"
-LOCK_FILE="$CACHE_DIR/fetch.lock"
+NOW=$(date +%s)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [[ ! -d "$CACHE_DIR" ]] && mkdir -p "$CACHE_DIR"
@@ -66,7 +67,6 @@ setup_theme() {
       C_RESET="#[fg=#ebdbb2,bg=${C_BG}]"
       ;;
     *)
-      # Fallback to catppuccin
       C_BG="#1e1e2e"
       C_RED="#[fg=#f38ba8,bg=${C_BG}]"  C_YELLOW="#[fg=#f9e2af,bg=${C_BG}]"
       C_GREEN="#[fg=#a6e3a1,bg=${C_BG}]" C_GRAY="#[fg=#6c7086,bg=${C_BG}]"
@@ -78,12 +78,6 @@ setup_theme() {
 setup_theme
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
-
-get_file_age() {
-  local mod_time
-  mod_time=$(stat -f '%m' "$1" 2>/dev/null)
-  echo $(( $(date +%s) - mod_time ))
-}
 
 get_pct_color() {
   local pct="$1"
@@ -122,50 +116,36 @@ format_time_days() {
 
 parse_reset_seconds() {
   local iso="$1"
+  [[ -z "$iso" ]] && return 1
   local clean=$(echo "$iso" | sed 's/\.[0-9]*//; s/+00:00//; s/Z$//')
-  local ts=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "$clean" "+%s" 2>/dev/null)
-  [[ -n "$ts" ]] && echo $(( ts - $(date +%s) )) || echo ""
+  local ts
+  ts=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "$clean" "+%s" 2>/dev/null) || return 1
+  echo $(( ts - NOW ))
 }
 
 # ─── API ──────────────────────────────────────────────────────────────────────
 
-is_valid_response() {
-  echo "$1" | jq -e '.five_hour or .seven_day' >/dev/null 2>&1
-}
-
-call_usage_api() {
-  local token="$1"
-  curl -s --max-time 5 "https://api.anthropic.com/api/oauth/usage" \
-    -H "Authorization: Bearer $token" \
-    -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null
-}
-
 fetch_api_data() {
-  # Cache hit
+  # Cache hit (60s TTL)
   if [[ -f "$API_CACHE" ]]; then
-    local age=$(get_file_age "$API_CACHE")
-    [[ $age -lt 60 ]] && cat "$API_CACHE" && return 0
+    local mod_time
+    mod_time=$(stat -f '%m' "$API_CACHE" 2>/dev/null) || { cat "$API_CACHE"; return 0; }
+    [[ $((NOW - mod_time)) -lt 60 ]] && cat "$API_CACHE" && return 0
   fi
-
-  # Rate limit fetches
-  if [[ -f "$LOCK_FILE" ]]; then
-    local lock_age=$(get_file_age "$LOCK_FILE")
-    if [[ $lock_age -lt 30 ]]; then
-      [[ -f "$API_CACHE" ]] && cat "$API_CACHE"
-      return 0
-    fi
-  fi
-  touch "$LOCK_FILE"
 
   local token
   token=$(claude_keychain_token)
   [[ -z "$token" ]] && { [[ -f "$API_CACHE" ]] && cat "$API_CACHE"; return 0; }
 
   local response
-  response=$(call_usage_api "$token")
+  response=$(curl -s --max-time 5 "https://api.anthropic.com/api/oauth/usage" \
+    -H "Authorization: Bearer ${token}" \
+    -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
 
-  if [[ -n "$response" ]] && is_valid_response "$response"; then
-    echo "$response" | tee "$API_CACHE"
+  # Validate: must be JSON with usage data
+  if [[ -n "$response" ]] && echo "$response" | jq -e '.five_hour or .seven_day' >/dev/null 2>&1; then
+    echo "$response" > "$API_CACHE"
+    echo "$response"
   else
     # Token expired or API error - show stale cache, let Claude Code handle refresh
     [[ -f "$API_CACHE" ]] && cat "$API_CACHE"
@@ -175,38 +155,34 @@ fetch_api_data() {
 # ─── Formatters ───────────────────────────────────────────────────────────────
 
 format_5h() {
-  local r="$1"
-  local pct=$(echo "$r" | jq -r '.five_hour.utilization // empty' 2>/dev/null)
+  local pct="$1" reset_at="$2"
   [[ -z "$pct" ]] && return
 
   local pct_int=${pct%.*}
   local color=$(get_pct_color "$pct_int")
   local bar=$(make_bar "$pct_int" "$color")
-  local reset_at=$(echo "$r" | jq -r '.five_hour.resets_at // empty' 2>/dev/null)
 
   local label="5h"
-  if [[ -n "$reset_at" ]]; then
-    local secs=$(parse_reset_seconds "$reset_at")
-    [[ -n "$secs" ]] && label=$(format_time "$secs")
+  local secs
+  if secs=$(parse_reset_seconds "$reset_at"); then
+    label=$(format_time "$secs")
   fi
 
   printf "%s: %s %s%s%%%s" "$label" "$bar" "$color" "$pct_int" "$C_RESET"
 }
 
 format_7d() {
-  local r="$1"
-  local pct=$(echo "$r" | jq -r '.seven_day.utilization // empty' 2>/dev/null)
+  local pct="$1" reset_at="$2"
   [[ -z "$pct" ]] && return
 
   local pct_int=${pct%.*}
   local color=$(get_pct_color "$pct_int")
   local bar=$(make_bar "$pct_int" "$color")
-  local reset_at=$(echo "$r" | jq -r '.seven_day.resets_at // empty' 2>/dev/null)
 
   local label="7d"
-  if [[ -n "$reset_at" ]]; then
-    local secs=$(parse_reset_seconds "$reset_at")
-    [[ -n "$secs" ]] && label=$(format_time_days "$secs")
+  local secs
+  if secs=$(parse_reset_seconds "$reset_at"); then
+    label=$(format_time_days "$secs")
   fi
 
   printf "%s%s:%s %s %s%s%%%s" "$C_GRAY" "$label" "$C_RESET" "$bar" "$color" "$pct_int" "$C_RESET"
@@ -217,27 +193,28 @@ format_7d() {
 RESPONSE=$(fetch_api_data)
 [[ -z "$RESPONSE" ]] && exit 0
 
-# Validate JSON
-if ! echo "$RESPONSE" | jq -e '.' >/dev/null 2>&1; then
-  echo "${C_RED}⚠ Err${C_RESET}"
-  exit 0
-fi
+# Single jq call to extract all fields at once
+IFS='|' read -r is_err pct_5h reset_5h pct_7d reset_7d has_5h <<< "$(
+  echo "$RESPONSE" | jq -r '[
+    (if .error then "1" else "0" end),
+    (.five_hour.utilization // "" | tostring),
+    (.five_hour.resets_at // ""),
+    (.seven_day.utilization // "" | tostring),
+    (.seven_day.resets_at // ""),
+    (if has("five_hour") then "1" else "0" end)
+  ] | join("|")' 2>/dev/null
+)"
 
-# Check for error responses
-api_type=$(echo "$RESPONSE" | jq -r '.type // empty' 2>/dev/null)
-api_err=$(echo "$RESPONSE" | jq -r '.error // empty' 2>/dev/null)
-if [[ "$api_type" == "error" || -n "$api_err" ]]; then
+# Error or unparseable response
+if [[ "$is_err" == "1" || -z "$is_err" ]]; then
   rm -f "$API_CACHE"
   echo "${C_RED}⚠ Auth${C_RESET}"
   exit 0
 fi
 
-# Check utilization fields
-session=$(echo "$RESPONSE" | jq -r '.five_hour.utilization // empty' 2>/dev/null)
-weekly=$(echo "$RESPONSE" | jq -r '.seven_day.utilization // empty' 2>/dev/null)
-
-if [[ -z "$session" && -z "$weekly" ]]; then
-  if echo "$RESPONSE" | jq -e 'has("five_hour")' >/dev/null 2>&1; then
+# No utilization data - unlimited or auth error
+if [[ -z "$pct_5h" && -z "$pct_7d" ]]; then
+  if [[ "$has_5h" == "1" ]]; then
     echo "${C_GREEN}∞ Max${C_RESET}"
   else
     rm -f "$API_CACHE"
@@ -248,11 +225,11 @@ fi
 
 # Render
 case "$MODE" in
-  5h)  format_5h "$RESPONSE" ;;
-  7d)  format_7d "$RESPONSE" ;;
+  5h)  format_5h "$pct_5h" "$reset_5h" ;;
+  7d)  format_7d "$pct_7d" "$reset_7d" ;;
   all|*)
-    out_5h=$(format_5h "$RESPONSE")
-    out_7d=$(format_7d "$RESPONSE")
+    out_5h=$(format_5h "$pct_5h" "$reset_5h")
+    out_7d=$(format_7d "$pct_7d" "$reset_7d")
     if [[ -n "$out_5h" && -n "$out_7d" ]]; then
       echo "${out_5h} ${C_GRAY}│${C_RESET} ${out_7d}"
     elif [[ -n "$out_5h" ]]; then echo "$out_5h"
