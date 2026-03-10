@@ -190,14 +190,22 @@ refresh_access_token() {
 
   local kc_data updated
   kc_data=$(claude_keychain_read)
+  [[ -z "$kc_data" ]] && return 1
   updated=$(echo "$kc_data" | jq \
     --arg at "$new_at" \
     --arg rt "${new_rt:-$refresh_token}" \
     --argjson ea "$new_exp" \
     '.claudeAiOauth.accessToken = $at | .claudeAiOauth.refreshToken = $rt | .claudeAiOauth.expiresAt = $ea')
+  [[ -z "$updated" ]] && return 1
 
-  security delete-generic-password -s "Claude Code-credentials" >/dev/null 2>&1
-  security add-generic-password -s "Claude Code-credentials" -a "Claude Code" -w "$updated" 2>/dev/null || return 1
+  # Detect the account name of the existing entry (could be "Claude Code" or username)
+  local kc_account
+  kc_account=$(security find-generic-password -s "Claude Code-credentials" 2>/dev/null \
+    | grep '"acct"' | sed 's/.*<blob>="\(.*\)"/\1/')
+  kc_account="${kc_account:-Claude Code}"
+
+  # Use -U (update) to atomically overwrite - avoids delete+add race that can lose credentials
+  security add-generic-password -U -s "Claude Code-credentials" -a "$kc_account" -w "$updated" 2>/dev/null || return 1
 
   echo "$new_at"
 }
