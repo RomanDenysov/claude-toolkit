@@ -14,12 +14,8 @@ MODE="${1:-all}"
 CACHE_DIR="$HOME/.cache/claude-tmux-usage"
 API_CACHE="$CACHE_DIR/api-response.json"
 LOCK_FILE="$CACHE_DIR/fetch.lock"
-REFRESH_LOCK="$CACHE_DIR/refresh.lock"
-CLIENT_ID_CACHE="$CACHE_DIR/client-id"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OAUTH_TOKEN_URL="https://platform.claude.com/v1/oauth/token"
-
 [[ ! -d "$CACHE_DIR" ]] && mkdir -p "$CACHE_DIR"
 source "$SCRIPT_DIR/claude-keychain.sh"
 
@@ -131,85 +127,6 @@ parse_reset_seconds() {
   [[ -n "$ts" ]] && echo $(( ts - $(date +%s) )) || echo ""
 }
 
-# ─── OAuth ────────────────────────────────────────────────────────────────────
-
-get_oauth_client_id() {
-  local claude_bin
-  claude_bin=$(readlink -f "$(which claude 2>/dev/null)" 2>/dev/null)
-  [[ -z "$claude_bin" ]] && echo "" && return
-
-  if [[ -f "$CLIENT_ID_CACHE" ]]; then
-    local cached_bin cached_id
-    cached_bin=$(head -1 "$CLIENT_ID_CACHE")
-    cached_id=$(tail -1 "$CLIENT_ID_CACHE")
-    [[ "$cached_bin" == "$claude_bin" && -n "$cached_id" ]] && echo "$cached_id" && return
-  fi
-
-  local cid
-  cid=$(strings "$claude_bin" 2>/dev/null | grep -oE 'CLIENT_ID:"[0-9a-f-]+"' | head -1 | sed 's/CLIENT_ID:"//;s/"$//')
-  cid="${cid:-9d1c250a-e61b-44d9-88ed-5944d1962f5e}"
-  printf '%s\n%s' "$claude_bin" "$cid" > "$CLIENT_ID_CACHE"
-  echo "$cid"
-}
-
-is_token_expired() {
-  local expires_at
-  expires_at=$(claude_keychain_expires_at)
-  [[ -z "$expires_at" ]] && return 1
-  local now_ms=$(( $(date +%s) * 1000 ))
-  [[ $now_ms -gt $((expires_at - 300000)) ]]
-}
-
-refresh_access_token() {
-  if [[ -f "$REFRESH_LOCK" ]]; then
-    local age=$(get_file_age "$REFRESH_LOCK")
-    [[ $age -lt 60 ]] && return 1
-  fi
-  touch "$REFRESH_LOCK"
-
-  local refresh_token client_id
-  refresh_token=$(claude_keychain_refresh_token)
-  [[ -z "$refresh_token" ]] && return 1
-  client_id=$(get_oauth_client_id)
-  [[ -z "$client_id" ]] && return 1
-
-  local resp
-  resp=$(curl -s --max-time 10 "$OAUTH_TOKEN_URL" \
-    -X POST \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=refresh_token&refresh_token=${refresh_token}&client_id=${client_id}" 2>/dev/null)
-
-  local new_at new_rt exp_in
-  new_at=$(echo "$resp" | jq -r '.access_token // empty' 2>/dev/null)
-  new_rt=$(echo "$resp" | jq -r '.refresh_token // empty' 2>/dev/null)
-  exp_in=$(echo "$resp" | jq -r '.expires_in // empty' 2>/dev/null)
-  [[ -z "$new_at" ]] && return 1
-
-  local now_ms=$(( $(date +%s) * 1000 ))
-  local new_exp=$((now_ms + ${exp_in:-3600} * 1000))
-
-  local kc_data updated
-  kc_data=$(claude_keychain_read)
-  [[ -z "$kc_data" ]] && return 1
-  updated=$(echo "$kc_data" | jq \
-    --arg at "$new_at" \
-    --arg rt "${new_rt:-$refresh_token}" \
-    --argjson ea "$new_exp" \
-    '.claudeAiOauth.accessToken = $at | .claudeAiOauth.refreshToken = $rt | .claudeAiOauth.expiresAt = $ea')
-  [[ -z "$updated" ]] && return 1
-
-  # Detect the account name of the existing entry (could be "Claude Code" or username)
-  local kc_account
-  kc_account=$(security find-generic-password -s "Claude Code-credentials" 2>/dev/null \
-    | grep '"acct"' | sed 's/.*<blob>="\(.*\)"/\1/')
-  kc_account="${kc_account:-Claude Code}"
-
-  # Use -U (update) to atomically overwrite - avoids delete+add race that can lose credentials
-  security add-generic-password -U -s "Claude Code-credentials" -a "$kc_account" -w "$updated" 2>/dev/null || return 1
-
-  echo "$new_at"
-}
-
 # ─── API ──────────────────────────────────────────────────────────────────────
 
 is_valid_response() {
@@ -244,31 +161,13 @@ fetch_api_data() {
   token=$(claude_keychain_token)
   [[ -z "$token" ]] && { [[ -f "$API_CACHE" ]] && cat "$API_CACHE"; return 0; }
 
-  # Proactive refresh
-  if is_token_expired; then
-    local new_token
-    new_token=$(refresh_access_token)
-    [[ -n "$new_token" ]] && token="$new_token"
-  fi
-
   local response
   response=$(call_usage_api "$token")
 
   if [[ -n "$response" ]] && is_valid_response "$response"; then
     echo "$response" | tee "$API_CACHE"
-  elif [[ -n "$response" ]]; then
-    # Error response — try refresh and retry once
-    local new_token
-    new_token=$(refresh_access_token)
-    if [[ -n "$new_token" ]]; then
-      response=$(call_usage_api "$new_token")
-      if [[ -n "$response" ]] && is_valid_response "$response"; then
-        echo "$response" | tee "$API_CACHE"
-        return 0
-      fi
-    fi
-    [[ -f "$API_CACHE" ]] && cat "$API_CACHE" || echo "$response"
   else
+    # Token expired or API error - show stale cache, let Claude Code handle refresh
     [[ -f "$API_CACHE" ]] && cat "$API_CACHE"
   fi
 }
